@@ -1,3 +1,115 @@
+
+3.6.0 / 2018-05-09
+==================
+
+  * Add support for disabling integrations at runtime (#70).
+  * Fix the tracking plan when load options are specified (#74).
+
+3.6.0-alpha.2 / 2018-05-09
+==================
+
+  * Fix the tracking plan when load options are specified (#74).
+
+3.6.0-alpha / 2018-05-09
+==================
+
+  * Add support for disabling integrations at runtime (#70).
+
+3.5.2 / 2018-05-01
+==================
+
+  * Fix metrics payload, send `Counter` in titlecase, and send `value`.
+
+3.5.1 / 2018-05-01
+==================
+
+  * Fix Metrics Client Payload, send `series` instead of `metrics`.
+
+3.5.0 / 2018-04-25
+==================
+
+  * Add Metrics
+
+3.4.1 / 2018-04-23
+==================
+
+  * Catch and guard against Integration errors
+
+3.4.0 / 2018-03-05
+==================
+
+  * Revert "[SCH-297][SCH-298] Add tracking plan support to identify and group traits" (#63)
+
+3.3.0 / 2018-03-01
+==================
+
+  * Add tracking plan support to identify and group traits (#61)
+
+3.2.7 / 2018-02-09
+==================
+
+  * Replace lodash deepclone with extend to lower ajs size
+
+3.2.6 / 2018-02-06
+==================
+
+  * Replace ndhoule clone with lodash clone to handle circular references in objects
+
+3.2.5 / 2017-11-09
+==================
+
+  * This release has no application changes - it's an attempt to fix release commits on CI.
+
+3.2.4 / 2017-11-09
+==================
+
+  * Revert "update page defaults search method" (#51).
+
+3.2.3 / 2017-11-09
+==================
+
+  * Add support for schema defaults (#50).
+
+3.2.2 / 2017-11-05
+==================
+
+ * Build updates on CI.
+ * This release has no application changes - it's an attempt to fix release commits on CI.
+
+3.2.1 / 2017-11-03
+==================
+
+ * Fix release commit in 3.2.0
+
+3.2.0 / 2017-11-03
+==================
+
+  * Send disabled events to Segment.
+
+3.1.3 / 2017-11-01
+==================
+
+  * Adds invocation of integration.ready in initialize catch statement to ensure analytics.ready callbacks are fired.
+
+3.1.2 / 2017-10-31
+==================
+
+  * Updates try/catch logic during initializations of integrations to look for integration.name - not integration.prototype.name
+  * Adds a check during `analytics._invoke` to check if the integration failed to initialize and if so, logs that it is passing and does not invoke it's corresponding method.
+
+3.1.1 / 2017-10-31
+==================
+
+  * Wrap initialize functions of integrations in try/catch statement.
+  * Add logging of failed initializations.
+  * Add a `failedInitializations` array to prototype to capture names of any failed integrations.
+
+3.1.0 / 2017-06-29
+==================
+
+  * Deprecate IE7/8 testing support
+  * Re-modernize test dependencies
+
 3.0.0 / 2016-05-25
 ==================
 
@@ -53,7 +165,7 @@
 ==================
 
  * Pull integrations from individual repositories, located in the [segment-integrations GitHub organization](https://github.com/segment-integrations/). This change should be unnoticeable from a user perspective, but has huge benefits in that excluding integrations from custom builds is now much, much easier, and one integration's test failures will no longer prevent another integration's tests from running.
-  
+
   A noteworthy part of this change: All integrations are now pulled into Analytics.js in `component.json`, using an explicit version number.
 In the future this part of the build process is very likely to change to be more of an automatic process, but for now--baby steps.
 
@@ -194,7 +306,7 @@ In the future this part of the build process is very likely to change to be more
   * entity: fallback to localstorage when cookies are disabled
   * tests: add localstorage fallback tests
   * dist: rebuild
-  
+
 2.7.1 / 2015-03-05
 ==================
 

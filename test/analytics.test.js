@@ -19,6 +19,7 @@ var cookie = Analytics.cookie;
 var group = analytics.group();
 var store = Analytics.store;
 var user = analytics.user();
+var metrics = Analytics.metrics;
 
 describe('Analytics', function() {
   var analytics;
@@ -104,11 +105,76 @@ describe('Analytics', function() {
     beforeEach(function() {
       sinon.spy(user, 'load');
       sinon.spy(group, 'load');
+      sinon.spy(metrics, 'increment');
     });
 
     afterEach(function() {
       user.load.restore();
       group.load.restore();
+      metrics.increment.restore();
+    });
+
+    it('should gracefully handle integrations that fail to initialize', function() {
+      Test.prototype.initialize = function() { throw new Error('Uh oh!'); };
+      var test = new Test();
+      analytics.use(Test);
+      analytics.add(test);
+      analytics.initialize();
+      assert(analytics.initialized);
+    });
+
+    it('should store the names of integrations that did not initialize', function() {
+      Test.prototype.initialize = function() { throw new Error('Uh oh!'); };
+      var test = new Test();
+      analytics.use(Test);
+      analytics.add(test);
+      analytics.initialize();
+      assert(analytics.failedInitializations.length === 1);
+      assert(analytics.failedInitializations[0] === Test.prototype.name);
+    });
+
+    it('should not process events for any integrations that failed to initialize', function() {
+      Test.prototype.initialize = function() { throw new Error('Uh oh!'); };
+      Test.prototype.page = sinon.spy();
+      var test = new Test();
+      test.invoke = sinon.spy();
+      analytics.use(Test);
+      analytics.add(test);
+      analytics.initialize();
+      analytics.page('Test Page Event');
+      assert(test.invoke.notCalled);
+    });
+
+    it('should still invoke the integrations .ready method', function(done) {
+      Test.prototype.initialize = function() { throw new Error('Uh oh!'); };
+      var spy = sinon.spy(Test.prototype, 'ready');
+      var test = new Test();
+      analytics.use(Test);
+      analytics.add(test);
+      analytics.ready(function() {
+        assert(spy.called);
+        done();
+      });
+      analytics.initialize();
+    });
+
+    it('should record a metric for integration errors', function() {
+      Test.prototype.initialize = function() { throw new Error('Uh oh!'); };
+      var test = new Test();
+      analytics.use(Test);
+      analytics.add(test);
+      analytics.initialize();
+      assert(analytics.initialized);
+
+      sinon.assert.calledTwice(metrics.increment);
+      sinon.assert.calledWith(metrics.increment, 'analytics_js.integration.invoke', {
+        method: 'initialize',
+        integration_name: 'Test'
+      });
+      sinon.assert.calledWith(metrics.increment, 'analytics_js.integration.invoke.error', {
+        method: 'initialize',
+        integration_name: 'Test'
+      });
     });
 
     it('should not error without settings', function() {
@@ -154,6 +220,19 @@ describe('Analytics', function() {
       analytics.initialize(settings);
     });
 
+    it('should listen on integration ready events', function(done) {
+      Test.readyOnInitialize();
+      analytics.addIntegration(Test);
+      analytics.ready(done);
+      analytics.initialize(settings);
+
+      sinon.assert.calledOnce(metrics.increment);
+      sinon.assert.calledWith(metrics.increment, 'analytics_js.integration.invoke', {
+        method: 'initialize',
+        integration_name: 'Test'
+      });
+    });
+
     it('should still call ready with unknown integrations', function(done) {
       analytics.ready(done);
       analytics.initialize({ Unknown: { key: 'key' } });
@@ -185,6 +264,49 @@ describe('Analytics', function() {
         done();
       });
       analytics.initialize(settings);
+    });
+
+    it('should not load disabled integrations', function(done) {
+      Test.readyOnInitialize();
+      analytics.addIntegration(Test);
+      analytics.ready(function() {
+        assert(!analytics._integrations.Test);
+        done();
+      });
+      analytics.initialize(settings, {
+        integrations: {
+          Test: false
+        }
+      });
+    });
+
+    it('should not load any integrations when integrations.All === false', function(done) {
+      Test.readyOnInitialize();
+      analytics.addIntegration(Test);
+      analytics.ready(function() {
+        assert(!analytics._integrations.Test);
+        done();
+      });
+      analytics.initialize(settings, {
+        integrations: {
+          All: false
+        }
+      });
+    });
+
+    it('should load explicitly enabled integrations when integrations.All === false', function(done) {
+      Test.readyOnInitialize();
+      analytics.addIntegration(Test);
+      analytics.ready(function() {
+        assert(analytics._integrations.Test);
+        done();
+      });
+      analytics.initialize(settings, {
+        integrations: {
+          All: false,
+          Test: {}
+        }
+      });
     });
 
     it('should send settings to an integration', function(done) {
@@ -253,6 +375,12 @@ describe('Analytics', function() {
       analytics.addIntegration(Test);
       analytics.ready(done);
       analytics.initialize(settings);
+
+      sinon.spy(metrics, 'increment');
+    });
+
+    afterEach(function() {
+      metrics.increment.restore();
     });
 
     it('should invoke a method on integration with facade', function() {
@@ -276,6 +404,42 @@ describe('Analytics', function() {
       var facade = new Facade({ options: opts });
       analytics._invoke('identify', facade);
       assert(!Test.prototype.invoke.called);
+    });
+
+    it('should not crash when invoking integration fails', function() {
+      Test.prototype.invoke = function() { throw new Error('Uh oh!'); };
+      analytics.track('Test Event');
+    });
+
+    it('should record a metric when invoking an integration', function() {
+      analytics.track('Test Event');
+
+      sinon.assert.calledTwice(metrics.increment);
+      sinon.assert.calledWith(metrics.increment, 'analytics_js.invoke', {
+        method: 'track'
+      });
+      sinon.assert.calledWith(metrics.increment, 'analytics_js.integration.invoke', {
+        method: 'track',
+        integration_name: 'Test'
+      });
+    });
+
+    it('should record a metric when invoking an integration', function() {
+      Test.prototype.invoke = function() { throw new Error('Uh oh!'); };
+      analytics.identify('prateek');
+
+      sinon.assert.calledThrice(metrics.increment);
+      sinon.assert.calledWith(metrics.increment, 'analytics_js.invoke', {
+        method: 'identify'
+      });
+      sinon.assert.calledWith(metrics.increment, 'analytics_js.integration.invoke', {
+        method: 'identify',
+        integration_name: 'Test'
+      });
+      sinon.assert.calledWith(metrics.increment, 'analytics_js.integration.invoke.error', {
+        method: 'identify',
+        integration_name: 'Test'
+      });
     });
 
     it('should support .integrations to disable / select integrations', function() {
@@ -302,6 +466,7 @@ describe('Analytics', function() {
       sinon.stub(store, 'options');
       sinon.stub(user, 'options');
       sinon.stub(group, 'options');
+      sinon.stub(metrics, 'options');
     });
 
     afterEach(function() {
@@ -309,11 +474,17 @@ describe('Analytics', function() {
       store.options.restore();
       user.options.restore();
       group.options.restore();
+      metrics.options.restore();
     });
 
     it('should set cookie options', function() {
       analytics._options({ cookie: { option: true } });
       assert(cookie.options.calledWith({ option: true }));
+    });
+
+    it('should set metrics options', function() {
+      analytics._options({ metrics: { option: true } });
+      assert(metrics.options.calledWith({ option: true }));
     });
 
     it('should set store options', function() {
@@ -553,6 +724,32 @@ describe('Analytics', function() {
       assert.deepEqual(page.options('AdRoll'), { opt: true });
     });
 
+    it('should use the initialize .integrations option', function() {
+      analytics.initialize(settings, {
+        integrations: {
+          Test: false
+        }
+      });
+      analytics.page({ prop: true });
+      var page = analytics._invoke.args[0][1];
+      assert.deepEqual(page.obj.integrations, { Test: false });
+    });
+
+    it('should be able to override the initialize .integrations option', function() {
+      analytics.initialize(settings, {
+        integrations: {
+          Test: false
+        }
+      });
+      analytics.page({ prop: true }, {
+        integrations: {
+          Test: true
+        }
+      });
+      var page = analytics._invoke.args[0][1];
+      assert.deepEqual(page.obj.integrations, { Test: true });
+    });
+
     it('should accept top level option .context', function() {
       var app = { name: 'segment' };
       analytics.page({ prop: true }, { context: { app: app } });
@@ -781,6 +978,32 @@ describe('Analytics', function() {
       assert.deepEqual({ opt: true }, identify.options('AdRoll'));
     });
 
+    it('should use the initialize .integrations option', function() {
+      analytics.initialize(settings, {
+        integrations: {
+          Test: false
+        }
+      });
+      analytics.identify(1, { trait: true });
+      var identify = analytics._invoke.args[0][1];
+      assert.deepEqual(identify.obj.integrations, { Test: false });
+    });
+
+    it('should be able to override the initialize .integrations option', function() {
+      analytics.initialize(settings, {
+        integrations: {
+          Test: false
+        }
+      });
+      analytics.identify(1, { trait: true }, {
+        integrations: {
+          Test: true
+        }
+      });
+      var identify = analytics._invoke.args[0][1];
+      assert.deepEqual(identify.obj.integrations, { Test: true });
+    });
+
     it('should accept top level option .context', function() {
       analytics.identify(1, { trait: true }, { context: { app: { name: 'segment' } } });
       var identify = analytics._invoke.args[0][1];
@@ -960,6 +1183,32 @@ describe('Analytics', function() {
       assert.deepEqual(group.options('AdRoll'), { opt: true });
     });
 
+    it('should use the initialize .integrations option', function() {
+      analytics.initialize(settings, {
+        integrations: {
+          Test: false
+        }
+      });
+      analytics.group(1, { trait: true });
+      var group = analytics._invoke.args[0][1];
+      assert.deepEqual(group.obj.integrations, { Test: false });
+    });
+
+    it('should be able to override the initialize .integrations option', function() {
+      analytics.initialize(settings, {
+        integrations: {
+          Test: false
+        }
+      });
+      analytics.group(1, { trait: true }, {
+        integrations: {
+          Test: true
+        }
+      });
+      var group = analytics._invoke.args[0][1];
+      assert.deepEqual(group.obj.integrations, { Test: true });
+    });
+
     it('should accept top level option .context', function() {
       var app = { name: 'segment' };
       analytics.group(1, { trait: true }, { context: { app: app } });
@@ -1073,6 +1322,83 @@ describe('Analytics', function() {
       assert.deepEqual({ opt: true }, track.options('AdRoll'));
     });
 
+    it('should use the initialize .integrations option', function() {
+      analytics.initialize(settings, {
+        integrations: {
+          Test: false
+        }
+      });
+      analytics.track('event', { prop: true });
+      var track = analytics._invoke.args[0][1];
+      assert.deepEqual(track.obj.integrations, { Test: false });
+    });
+
+    it('should be able to override the initialize .integrations option', function() {
+      analytics.initialize(settings, {
+        integrations: {
+          Test: false
+        }
+      });
+      analytics.track('event', { prop: true }, {
+        integrations: {
+          Test: true
+        }
+      });
+      var track = analytics._invoke.args[0][1];
+      assert.deepEqual(track.obj.integrations, { Test: true });
+    });
+
+    it('should allow tracking plan to disable integrations explicitly enabled via initialize .integrations option', function() {
+      analytics.initialize(settings, {
+        integrations: {
+          All: false,
+          Test: true
+        },
+        plan: {
+          track: {
+            event1: { enabled: false },
+            event2: {
+              enabled: true,
+              integrations: { Test: false }
+            }
+          }
+        }
+      });
+
+      analytics.track('event1', { prop: true });
+      var track = analytics._invoke.args[0][1];
+      assert.deepEqual(track.obj.integrations, { All: false, 'Segment.io': true });
+
+      analytics.track('event2', { prop: true });
+      var track2 = analytics._invoke.args[1][1];
+      assert.deepEqual(track2.obj.integrations, { All: false, Test: false });
+    });
+
+    it('should prevent tracking plan from enabling integrations disabled via initialize .integrations option', function() {
+      analytics.initialize(settings, {
+        integrations: {
+          Test: false
+        },
+        plan: {
+          track: {
+            event1: { enabled: true },
+            event2: {
+              enabled: true,
+              integrations: { Test: true }
+            }
+          }
+        }
+      });
+
+      analytics.track('event1', { prop: true });
+      var track1 = analytics._invoke.args[0][1];
+      assert.deepEqual(track1.obj.integrations, { Test: false });
+
+      analytics.track('event2', { prop: true });
+      var track2 = analytics._invoke.args[1][1];
+      assert.deepEqual(track2.obj.integrations, { Test: false });
+    });
+
     it('should accept top level option .context', function() {
       var app = { name: 'segment' };
       analytics.track('event', { prop: true }, { context: { app: app } });
@@ -1080,14 +1406,16 @@ describe('Analytics', function() {
       assert.deepEqual(app, track.obj.context.app);
     });
 
-    it('should not call #_invoke if the event is disabled', function() {
+    it('should call #_invoke for Segment if the event is disabled', function() {
       analytics.options.plan = {
         track: {
           event: { enabled: false }
         }
       };
       analytics.track('event');
-      assert(!analytics._invoke.called);
+      assert(analytics._invoke.called);
+      var track = analytics._invoke.args[0][1];
+      assert.deepEqual({ All: false, 'Segment.io': true }, track.obj.integrations);
     });
 
     it('should call #_invoke if the event is enabled', function() {
@@ -1125,6 +1453,56 @@ describe('Analytics', function() {
       var msg = analytics._invoke.args[0][1];
       assert(msg.event() === 'event');
       assert.deepEqual(msg.integrations(), { All: true, Segment: true });
+    });
+
+    it('should call #_invoke if new events are enabled', function() {
+      analytics.options.plan = {
+        track: {
+          __default: { enabled: true }
+        }
+      };
+      analytics.track('event');
+      assert(analytics._invoke.called);
+      var track = analytics._invoke.args[0][1];
+      assert.deepEqual({}, track.obj.integrations);
+    });
+
+    it('should call #_invoke for Segment if new events are disabled', function() {
+      analytics.options.plan = {
+        track: {
+          __default: { enabled: false }
+        }
+      };
+      analytics.track('even');
+      assert(analytics._invoke.called);
+      var track = analytics._invoke.args[0][1];
+      assert.deepEqual({ All: false, 'Segment.io': true }, track.obj.integrations);
+    });
+
+    it('should use the event plan if it exists and ignore defaults', function() {
+      analytics.options.plan = {
+        track: {
+          event: { enabled: true },
+          __default: { enabled: false }
+        }
+      };
+      analytics.track('event');
+      assert(analytics._invoke.called);
+      var track = analytics._invoke.args[0][1];
+      assert.deepEqual({}, track.obj.integrations);
+    });
+
+    it('should merge the event plan if it exists and ignore defaults', function() {
+      analytics.options.plan = {
+        track: {
+          event: { enabled: true, integrations: { Mixpanel: false } },
+          __default: { enabled: false }
+        }
+      };
+      analytics.track('event');
+      assert(analytics._invoke.called);
+      var track = analytics._invoke.args[0][1];
+      assert.deepEqual({ Mixpanel: false }, track.obj.integrations);
     });
 
     it('should not set ctx.integrations if plan.integrations is empty', function() {
@@ -1453,6 +1831,38 @@ describe('Analytics', function() {
         done();
       });
       analytics.alias('new', 'old', { opt: true });
+    });
+
+    it('should accept top level option .integrations', function() {
+      analytics.alias('new', 'old', { integrations: { AdRoll: { opt: true } } });
+      var alias = analytics._invoke.args[0][1];
+      assert.deepEqual({ opt: true }, alias.options('AdRoll'));
+    });
+
+    it('should use the initialize .integrations option', function() {
+      analytics.initialize(settings, {
+        integrations: {
+          Test: false
+        }
+      });
+      analytics.alias('new', 'old');
+      var alias = analytics._invoke.args[0][1];
+      assert.deepEqual(alias.obj.integrations, { Test: false });
+    });
+
+    it('should be able to override the initialize .integrations option', function() {
+      analytics.initialize(settings, {
+        integrations: {
+          Test: false
+        }
+      });
+      analytics.alias('new', 'old', {
+        integrations: {
+          Test: true
+        }
+      });
+      var alias = analytics._invoke.args[0][1];
+      assert.deepEqual(alias.obj.integrations, { Test: true });
     });
   });
 

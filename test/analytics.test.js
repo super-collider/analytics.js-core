@@ -284,6 +284,12 @@ describe('Analytics', function() {
       assert(!Test.prototype.invoke.called);
     });
 
+    it('should honor disabled integrations in page options', function() {
+      var opts = { plan: { page: { enabled: true, integrations: { Test: false } } } };
+      analytics.page('category', 'name', {}, opts);
+      assert(!Test.prototype.invoke.called);
+    });
+
     it('should emit "invoke" with facade', function(done) {
       var opts = { All: false };
       var identify = new Identify({ options: opts });
@@ -590,6 +596,22 @@ describe('Analytics', function() {
         done();
       });
       analytics.page('category', 'name', {}, {});
+    });
+
+    it('should not emit page if page is disabled', function() {
+      var opts = { plan: { page: { enabled: false } } }
+      analytics.page('category', 'name', {}, opts);
+      assert(!analytics._invoke.calledWith('page'));
+    });
+
+    it('should emit page, honoring the page options', function() {
+      var integrations = { "Google Analytics": true, "Kissmetrics": false, "Mixpanel": false }
+      var opts = { plan: { page: { enabled: true, integrations: integrations } } }
+      analytics.page('category', 'name', {}, opts);
+
+      var page = analytics._invoke.args[0][1]
+      assert.deepEqual(page.integrations(), integrations)
+      assert(analytics._invoke.calledWith('page'));
     });
   });
 
